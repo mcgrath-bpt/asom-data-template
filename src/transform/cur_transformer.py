@@ -92,14 +92,11 @@ def compute_trend(summary: pl.DataFrame, window: int = 7) -> pl.DataFrame:
         Input DataFrame with additional cost_7d_avg column.
         First (window-1) days per service will have NULL average.
     """
-    result = (
-        summary.sort(["service_name", "usage_date"])
-        .with_columns(
-            pl.col("daily_cost")
-            .rolling_mean(window_size=window, min_periods=window)
-            .over("service_name")
-            .alias("cost_7d_avg")
-        )
+    result = summary.sort(["service_name", "usage_date"]).with_columns(
+        pl.col("daily_cost")
+        .rolling_mean(window_size=window, min_samples=window)
+        .over("service_name")
+        .alias("cost_7d_avg")
     )
 
     logger.info("Computed %d-day moving average trend", window)
