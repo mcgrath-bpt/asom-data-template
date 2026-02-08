@@ -78,13 +78,18 @@ def load_cur_parquet(db: DBConnector, parquet_path: Path | str) -> int:
         ValueError: If the Parquet file fails schema validation.
     """
     parquet_path = Path(parquet_path)
+    if not parquet_path.exists():
+        raise FileNotFoundError(f"CUR Parquet file not found: {parquet_path}")
+
     logger.info("Loading CUR data from %s", parquet_path)
 
-    # Read and validate
+    # Read and validate schema before any DB operations
     df = pl.read_parquet(parquet_path)
     errors = validate_cur_schema(df)
     if errors:
         raise ValueError(f"CUR schema validation failed: {'; '.join(errors)}")
+
+    logger.info("Read %d rows, %d columns from %s", len(df), len(df.columns), parquet_path.name)
 
     # Ensure raw_cur table exists
     col_defs = ", ".join(f"{col} TEXT" for col in CUR_EXPECTED_COLUMNS)
@@ -101,11 +106,17 @@ def load_cur_parquet(db: DBConnector, parquet_path: Path | str) -> int:
         logger.info("No new rows to load (all %d rows already exist)", len(df))
         return 0
 
-    # Insert new rows
+    # Insert new rows row-by-row (compatible with all backends)
+    cols = ", ".join(CUR_EXPECTED_COLUMNS)
     for row in new_rows.iter_rows(named=True):
-        cols = ", ".join(CUR_EXPECTED_COLUMNS)
-        placeholders = ", ".join(f"'{_sql_escape(str(row[c]))}'" if row[c] is not None else "NULL" for c in CUR_EXPECTED_COLUMNS)
-        db.execute(f"INSERT INTO raw_cur ({cols}) VALUES ({placeholders})")
+        values = []
+        for col in CUR_EXPECTED_COLUMNS:
+            val = row[col]
+            if val is None:
+                values.append("NULL")
+            else:
+                values.append(f"'{_sql_escape(str(val))}'")
+        db.execute(f"INSERT INTO raw_cur ({cols}) VALUES ({', '.join(values)})")
 
     inserted = len(new_rows)
     logger.info("Loaded %d new rows into raw_cur", inserted)
