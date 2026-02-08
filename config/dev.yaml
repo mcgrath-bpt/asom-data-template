@@ -1,0 +1,11 @@
+# Snowflake DEV environment configuration
+# Credentials should be set via environment variables or .env file, NOT here.
+
+db_type: snowflake
+log_level: DEBUG
+
+# Snowflake connection — override via ASOM_SNOWFLAKE_ACCOUNT etc.
+snowflake_database: DEV_DATABASE
+snowflake_schema: RAW
+snowflake_warehouse: DEV_WH_XS
+snowflake_role: DATA_ENGINEER

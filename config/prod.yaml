@@ -1,0 +1,12 @@
+# Production environment configuration (reference only)
+# This file exists for documentation purposes.
+# Production deployments are managed by CI/CD with credentials from secrets manager.
+# Developers should NEVER use this locally.
+
+db_type: snowflake
+log_level: WARNING
+
+snowflake_database: PROD_DATABASE
+snowflake_schema: RAW
+snowflake_warehouse: PROD_WH_M
+snowflake_role: ETL_SERVICE_ACCOUNT

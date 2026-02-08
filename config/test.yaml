@@ -1,0 +1,6 @@
+# CI/CD test environment configuration
+# Used in automated pipelines — DuckDB for isolation and speed.
+
+db_type: duckdb
+db_path: ":memory:"
+log_level: WARNING

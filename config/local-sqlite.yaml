@@ -1,0 +1,7 @@
+# Local development configuration (SQLite3 fallback)
+# Use when DuckDB is not available or for minimal-dependency testing.
+
+db_type: sqlite
+db_path: data/local.sqlite
+log_level: DEBUG
+raw_data_path: data/raw

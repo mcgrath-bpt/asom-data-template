@@ -1,0 +1,7 @@
+# Local development configuration (DuckDB)
+# This is the default environment — no external dependencies needed.
+
+db_type: duckdb
+db_path: data/local.duckdb
+log_level: DEBUG
+raw_data_path: data/raw
