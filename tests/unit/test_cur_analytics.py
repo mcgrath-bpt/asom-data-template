@@ -127,7 +127,7 @@ class TestEndToEndPipeline:
         """Load -> Transform -> Analyze works end-to-end."""
         # Extract
         count = load_cur_parquet(local_db, FIXTURES_DIR / "sample_cur.parquet")
-        assert count == 151
+        assert count == 361
 
         # Transform
         summary = build_daily_cost_summary(local_db)

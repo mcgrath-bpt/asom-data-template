@@ -80,13 +80,12 @@ class TestBuildDailyCostSummary:
     def test_record_count_correct(self, loaded_db) -> None:
         """Record count reflects actual rows per (date, service)."""
         df = build_daily_cost_summary(loaded_db)
-        # Most date/service combos have 1 row, except 2025-01-15 AmazonEC2 has 2
-        # (one regular + one null-cost row)
+        # EC2 on 2025-01-15 has 3 usage types + 1 null-cost row = 4
         ec2_jan15 = df.filter(
             (pl.col("service_name") == "AmazonEC2")
             & (pl.col("usage_date") == "2025-01-15")
         )
-        assert ec2_jan15["record_count"][0] == 2
+        assert ec2_jan15["record_count"][0] == 4
 
 
 # ---------------------------------------------------------------------------

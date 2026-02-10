@@ -37,14 +37,14 @@ class TestLoadCurParquet:
     def test_load_returns_row_count(self, local_db) -> None:
         """Loading a valid Parquet file returns the number of rows loaded."""
         count = load_cur_parquet(local_db, FIXTURES_DIR / "sample_cur.parquet")
-        assert count == 151
+        assert count == 361
 
     @pytest.mark.t1_logic
     def test_loaded_data_queryable(self, local_db) -> None:
         """After loading, data is queryable from raw_cur table."""
         load_cur_parquet(local_db, FIXTURES_DIR / "sample_cur.parquet")
         rows = local_db.fetch_all("SELECT COUNT(*) as cnt FROM raw_cur")
-        assert rows[0]["cnt"] == 151
+        assert rows[0]["cnt"] == 361
 
     @pytest.mark.t1_logic
     def test_loaded_columns_present(self, local_db) -> None:
@@ -110,12 +110,12 @@ class TestIdempotentLoad:
         load_cur_parquet(local_db, FIXTURES_DIR / "sample_cur.parquet")
         load_cur_parquet(local_db, FIXTURES_DIR / "sample_cur.parquet")
         rows = local_db.fetch_all("SELECT COUNT(*) as cnt FROM raw_cur")
-        assert rows[0]["cnt"] == 151  # Not 302
+        assert rows[0]["cnt"] == 361  # Not 722
 
     @pytest.mark.t5_idempotency
     def test_idempotent_load_returns_zero_on_rerun(self, local_db) -> None:
         """Second load returns 0 (no new rows inserted)."""
         first_count = load_cur_parquet(local_db, FIXTURES_DIR / "sample_cur.parquet")
         second_count = load_cur_parquet(local_db, FIXTURES_DIR / "sample_cur.parquet")
-        assert first_count == 151
+        assert first_count == 361
         assert second_count == 0
