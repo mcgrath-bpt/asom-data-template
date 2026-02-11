@@ -76,13 +76,76 @@ Until automated monitoring is in place:
 - Review `raw_cur` row counts weekly
 - Review cost anomaly output weekly
 
+## Dimension Loads (Sprint 2)
+
+### dim_service (SCD Type 1)
+
+| Attribute | Value |
+|-----------|-------|
+| Trigger | After CUR load completes (step 3 above) |
+| Runtime | < 1 minute |
+| Idempotent | Yes — INSERT ON CONFLICT UPDATE |
+
+**Normal operation:**
+1. Runs after `raw_cur` is loaded
+2. Extracts distinct (product_code, usage_type) from `raw_cur`
+3. Inserts new combinations, updates `last_seen_date` for existing
+4. Derives `service_category` from product_code
+
+**Failure scenarios:**
+
+| Symptom | Cause | Action | Severity |
+|---------|-------|--------|----------|
+| DDL file not found | sql/ddl/dim_service.sql missing | Check file exists in deployment | Medium |
+| DML file not found | sql/dml/merge_dim_service.sql missing | Check file exists in deployment | Medium |
+| 0 rows inserted | raw_cur empty or all services already loaded | Check raw_cur row count; verify CUR load ran first | Low |
+| SQL error on category CASE | Unknown product_code pattern | Falls through to 'Other' category — no action needed | None |
+
+**Re-run:** Safe. Re-running updates `last_seen_date` and `_updated_at` but does not duplicate rows.
+
+### dim_customer (SCD Type 2)
+
+| Attribute | Value |
+|-----------|-------|
+| Trigger | When new customer snapshot is available |
+| Runtime | < 1 minute (scales linearly with customer count) |
+| Idempotent | Yes — unchanged customers skipped, no duplicates |
+| PII | Email and phone masked before insert |
+
+**Normal operation:**
+1. Receives path to customer snapshot Parquet file
+2. Reads snapshot, applies PII masking (email → SHA256, phone → XXX-XXX-NNNN)
+3. Compares each customer against current dimension state
+4. New customers: INSERT with is_current=TRUE
+5. Segment changed: expire old record (set effective_to, is_current=FALSE), INSERT new version
+6. Unchanged: skip (no action)
+
+**Failure scenarios:**
+
+| Symptom | Cause | Action | Severity |
+|---------|-------|--------|----------|
+| Snapshot file not found | Parquet path incorrect or file not delivered | Verify file path and delivery schedule | Medium |
+| PII masking error | PIIMasker configuration issue (missing salt) | Check masker initialisation, verify salt is set | High |
+| Duplicate current records | Bug in expire logic (should not happen with tests) | Query `SELECT customer_id, COUNT(*) FROM dim_customer WHERE is_current GROUP BY 1 HAVING COUNT(*) > 1` to identify | High |
+| History chain broken | effective_to not set on expired record | Query for records where is_current=FALSE AND effective_to IS NULL | High |
+
+**Re-run:** Safe. Loading the same snapshot twice produces no changes (idempotent). Loading a new snapshot after a previous one correctly creates new versions only for changed customers.
+
+**PII incident response:** If unmasked PII is discovered in dim_customer:
+1. Immediately truncate dim_customer table
+2. Verify PIIMasker is configured with valid salt
+3. Re-run dimension load with masking confirmed
+4. Report incident per data classification policy
+
 ## Rollback
 
 The pipeline is append-only and idempotent. There is no destructive state change.
 
-- **To re-process**: Delete rows from `raw_cur` for the affected date range, then re-run
+- **To re-process CUR**: Delete rows from `raw_cur` for the affected date range, then re-run
+- **To re-process dim_service**: DROP and re-create table (DDL), then re-run loader. All state derived from raw_cur.
+- **To re-process dim_customer**: DROP and re-create table (DDL), then re-load all snapshots in chronological order. History chain rebuilds from scratch.
 - **To rollback code**: Revert git commit, re-deploy previous version
-- **Data is never modified in place**: raw layer is insert-only
+- **Data is never modified in place**: raw layer is insert-only, dimensions are versioned (SCD2) or idempotent (SCD1)
 
 ## Contacts
 
