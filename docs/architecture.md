@@ -179,6 +179,57 @@ Customer Snapshots (Parquet v1, v2, ...)
 4. **Row-by-row SCD2 processing**: Acceptable for dimension tables (tens of thousands of rows). Would need batch processing for large-scale customer bases.
 5. **Deterministic fixtures for testing**: Customer snapshots v1 (baseline) and v2 (with changes) generated with fixed seeds for reproducible tests.
 
+## Fact Tables (Sprint 3)
+
+The pipeline produces fact tables that reference dimensions via surrogate keys.
+
+### Data Flow — Facts
+
+```
+raw_cur (DuckDB / Snowflake)
+        |
+        + dim_service (FK: service_key)
+        |
+        v
+  [fact_daily_cost Loader]
+  fact_daily_cost_loader.py
+  - Reads DDL from sql/ddl/fact_daily_cost.sql
+  - Executes DML from sql/dml/load_fact_daily_cost.sql
+  - INSERT ON CONFLICT UPDATE (idempotent)
+  - NULL costs coalesced to 0.00 with audit trail
+  - Monetary precision: 2 decimal places
+        |
+        v
+  fact_daily_cost (DuckDB / Snowflake)
+  - Grain: (usage_date, service_key)
+  - Measures: daily_cost, record_count, null_cost_count
+  - Audit: _loaded_at
+```
+
+### fact_daily_cost Schema
+
+| Column | Type | Description |
+|--------|------|-------------|
+| usage_date | TEXT | Date (YYYY-MM-DD) — part of composite key |
+| service_key | INTEGER | FK to dim_service — part of composite key |
+| daily_cost | DOUBLE | Sum of unblended_cost, rounded to 2 decimals |
+| record_count | INTEGER | Number of source CUR rows in this grain |
+| null_cost_count | INTEGER | Source rows where cost was NULL (audit trail) |
+| _loaded_at | TEXT | Load timestamp |
+
+- **Unique constraint**: (usage_date, service_key)
+- **FK relationship**: service_key references dim_service(service_key)
+- **Idempotency**: INSERT ON CONFLICT UPDATE ensures re-run safety
+- **NULL handling**: COALESCE(cost, 0.0) with null_cost_count tracking
+
+### Key Design Decisions (Sprint 3)
+
+1. **SQL-first for fact table**: Same pattern as dim_service — DDL and DML in SQL files, Python orchestrates. Portable to Snowflake.
+2. **Composite natural key**: (usage_date, service_key) ensures one row per day per service. No surrogate key needed — grain is the key.
+3. **NULL cost audit trail**: null_cost_count column tracks how many source rows had NULL cost, enabling data quality monitoring without losing the aggregated value.
+4. **2-decimal monetary precision**: ROUND(SUM(...), 2) applied in SQL for consistent precision across backends.
+5. **Record count reconciliation**: record_count preserves source row counts, enabling SUM(record_count) == COUNT(*) FROM raw_cur validation.
+
 ## Data Classification
 
 - **Classification**: Internal-Confidential
