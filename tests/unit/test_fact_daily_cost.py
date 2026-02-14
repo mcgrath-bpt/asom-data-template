@@ -83,12 +83,12 @@ class TestFactDailyCostContent:
         rows = db_with_dims.fetch_all("""
             SELECT usage_date, service_key, daily_cost
             FROM fact_daily_cost
-            WHERE usage_date = '2024-01-01'
+            WHERE usage_date = '2025-01-01'
             ORDER BY service_key
         """)
         assert len(rows) > 0
         for row in rows:
-            assert row["usage_date"] == "2024-01-01"
+            assert row["usage_date"] == "2025-01-01"
             assert row["service_key"] is not None
 
     @pytest.mark.t1_logic
@@ -149,7 +149,7 @@ class TestFactDailyCostContent:
                    d.product_code, d.usage_type
             FROM fact_daily_cost f
             JOIN dim_service d ON f.service_key = d.service_key
-            WHERE f.usage_date = '2024-01-15'
+            WHERE f.usage_date = '2025-01-15'
             AND d.product_code = 'AmazonEC2'
             LIMIT 1
         """)
