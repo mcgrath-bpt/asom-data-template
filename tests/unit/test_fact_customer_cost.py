@@ -21,7 +21,6 @@ from src.load.dim_customer_loader import load_dim_customer
 from src.load.dim_service_loader import load_dim_service
 from src.load.fact_customer_cost_loader import load_fact_customer_cost
 
-
 FIXTURES_DIR = Path("tests/fixtures")
 
 
@@ -38,8 +37,7 @@ def db_with_dims() -> DuckDBConnector:
     db = DuckDBConnector(database=":memory:")
     load_cur_parquet(db, FIXTURES_DIR / "sample_cur.parquet")
     load_dim_service(db)
-    load_dim_customer(db, FIXTURES_DIR / "sample_customers_v1.parquet",
-                      snapshot_date="2025-01-01")
+    load_dim_customer(db, FIXTURES_DIR / "sample_customers_v1.parquet", snapshot_date="2025-01-01")
     return db
 
 
@@ -54,10 +52,8 @@ def db_with_scd2() -> DuckDBConnector:
     db = DuckDBConnector(database=":memory:")
     load_cur_parquet(db, FIXTURES_DIR / "sample_cur.parquet")
     load_dim_service(db)
-    load_dim_customer(db, FIXTURES_DIR / "sample_customers_v1.parquet",
-                      snapshot_date="2025-01-01")
-    load_dim_customer(db, FIXTURES_DIR / "sample_customers_v2.parquet",
-                      snapshot_date="2025-01-15")
+    load_dim_customer(db, FIXTURES_DIR / "sample_customers_v1.parquet", snapshot_date="2025-01-01")
+    load_dim_customer(db, FIXTURES_DIR / "sample_customers_v2.parquet", snapshot_date="2025-01-15")
     return db
 
 
@@ -73,9 +69,7 @@ class TestFactCustomerCostSchema:
     def test_table_created(self, db_with_dims) -> None:
         """Loading creates fact_customer_cost table."""
         load_fact_customer_cost(db_with_dims)
-        rows = db_with_dims.fetch_all(
-            "SELECT COUNT(*) as cnt FROM fact_customer_cost"
-        )
+        rows = db_with_dims.fetch_all("SELECT COUNT(*) as cnt FROM fact_customer_cost")
         assert rows[0]["cnt"] > 0
 
     @pytest.mark.t2_contract
@@ -92,9 +86,7 @@ class TestFactCustomerCostSchema:
             "null_cost_count",
             "_loaded_at",
         }
-        assert expected.issubset(set(df.columns)), (
-            f"Missing columns: {expected - set(df.columns)}"
-        )
+        assert expected.issubset(set(df.columns)), f"Missing columns: {expected - set(df.columns)}"
 
 
 # ---------------------------------------------------------------------------
@@ -177,9 +169,7 @@ class TestFactCustomerCostAttribution:
             ORDER BY usage_date
         """)
         for row in customers_per_date:
-            assert row["cust_count"] == 30, (
-                f"Date {row['usage_date']}: expected 30 customers, got {row['cust_count']}"
-            )
+            assert row["cust_count"] == 30, f"Date {row['usage_date']}: expected 30 customers, got {row['cust_count']}"
 
     @pytest.mark.t1_logic
     def test_cost_allocation_sums_to_daily_total(self, db_with_dims) -> None:
@@ -217,9 +207,7 @@ class TestFactCustomerCostAttribution:
                AND rt.service_key = ft.service_key
             WHERE ABS(rt.raw_cost - ft.total_allocated) > 0.20
         """)
-        assert len(discrepancies) == 0, (
-            f"Cost allocation mismatch: {discrepancies[:5]}"
-        )
+        assert len(discrepancies) == 0, f"Cost allocation mismatch: {discrepancies[:5]}"
 
     @pytest.mark.t1_logic
     def test_returns_row_count(self, db_with_dims) -> None:
@@ -260,9 +248,7 @@ class TestFactCustomerCostSCD2:
             WHERE usage_date = '2025-01-14'
               AND customer_key = {original_key}
         """)
-        assert rows[0]["cnt"] > 0, (
-            f"Expected costs for original customer_key={original_key} on 2025-01-14"
-        )
+        assert rows[0]["cnt"] > 0, f"Expected costs for original customer_key={original_key} on 2025-01-14"
 
     @pytest.mark.t1_logic
     def test_scd2_after_change_uses_new_version(self, db_with_scd2) -> None:
@@ -287,9 +273,7 @@ class TestFactCustomerCostSCD2:
             WHERE usage_date = '2025-01-15'
               AND customer_key = {current_key}
         """)
-        assert rows[0]["cnt"] > 0, (
-            f"Expected costs for current customer_key={current_key} on 2025-01-15"
-        )
+        assert rows[0]["cnt"] > 0, f"Expected costs for current customer_key={current_key} on 2025-01-15"
 
     @pytest.mark.t1_logic
     def test_scd2_no_overlap_same_customer_id_same_date(self, db_with_scd2) -> None:
@@ -307,9 +291,7 @@ class TestFactCustomerCostSCD2:
             GROUP BY f.usage_date, c.customer_id, f.service_key
             HAVING COUNT(*) > 1
         """)
-        assert len(duplicates) == 0, (
-            f"Duplicate customer_id per date/service: {duplicates[:5]}"
-        )
+        assert len(duplicates) == 0, f"Duplicate customer_id per date/service: {duplicates[:5]}"
 
     @pytest.mark.t1_logic
     def test_scd2_new_customers_only_from_effective_date(self, db_with_scd2) -> None:
@@ -323,9 +305,7 @@ class TestFactCustomerCostSCD2:
             WHERE c.customer_id IN (31, 32, 33)
               AND f.usage_date < '2025-01-15'
         """)
-        assert early_rows[0]["cnt"] == 0, (
-            "New customers should have no costs before their effective_from date"
-        )
+        assert early_rows[0]["cnt"] == 0, "New customers should have no costs before their effective_from date"
 
     @pytest.mark.t1_logic
     def test_scd2_customer_count_changes_at_boundary(self, db_with_scd2) -> None:
@@ -344,13 +324,9 @@ class TestFactCustomerCostSCD2:
         """)
         for row in counts:
             if row["usage_date"] < "2025-01-15":
-                assert row["cust_count"] == 30, (
-                    f"Date {row['usage_date']}: expected 30, got {row['cust_count']}"
-                )
+                assert row["cust_count"] == 30, f"Date {row['usage_date']}: expected 30, got {row['cust_count']}"
             else:
-                assert row["cust_count"] == 33, (
-                    f"Date {row['usage_date']}: expected 33, got {row['cust_count']}"
-                )
+                assert row["cust_count"] == 33, f"Date {row['usage_date']}: expected 33, got {row['cust_count']}"
 
 
 # ---------------------------------------------------------------------------
@@ -393,9 +369,7 @@ class TestFactCustomerCostQuality:
         """AC-5: No NULL allocated_cost values — NULLs coalesced to 0."""
         load_fact_customer_cost(db_with_dims)
 
-        nulls = db_with_dims.fetch_all(
-            "SELECT COUNT(*) as cnt FROM fact_customer_cost WHERE allocated_cost IS NULL"
-        )
+        nulls = db_with_dims.fetch_all("SELECT COUNT(*) as cnt FROM fact_customer_cost WHERE allocated_cost IS NULL")
         assert nulls[0]["cnt"] == 0
 
     @pytest.mark.t3_quality
@@ -403,9 +377,7 @@ class TestFactCustomerCostQuality:
         """AC-5: null_cost_count tracks how many source rows had NULL cost."""
         load_fact_customer_cost(db_with_dims)
 
-        rows = db_with_dims.fetch_all(
-            "SELECT null_cost_count FROM fact_customer_cost WHERE null_cost_count IS NULL"
-        )
+        rows = db_with_dims.fetch_all("SELECT null_cost_count FROM fact_customer_cost WHERE null_cost_count IS NULL")
         assert len(rows) == 0
 
     @pytest.mark.t3_quality
@@ -413,9 +385,7 @@ class TestFactCustomerCostQuality:
         """Monetary values at consistent 2 decimal places."""
         load_fact_customer_cost(db_with_dims)
 
-        rows = db_with_dims.fetch_all(
-            "SELECT allocated_cost FROM fact_customer_cost"
-        )
+        rows = db_with_dims.fetch_all("SELECT allocated_cost FROM fact_customer_cost")
         for row in rows:
             assert round(row["allocated_cost"], 2) == row["allocated_cost"], (
                 f"Cost {row['allocated_cost']} not at 2-decimal precision"
@@ -426,9 +396,7 @@ class TestFactCustomerCostQuality:
         """record_count is always positive."""
         load_fact_customer_cost(db_with_dims)
 
-        rows = db_with_dims.fetch_all(
-            "SELECT COUNT(*) as cnt FROM fact_customer_cost WHERE record_count <= 0"
-        )
+        rows = db_with_dims.fetch_all("SELECT COUNT(*) as cnt FROM fact_customer_cost WHERE record_count <= 0")
         assert rows[0]["cnt"] == 0
 
     @pytest.mark.t3_quality
@@ -496,9 +464,7 @@ class TestFactCustomerCostPII:
         load_fact_customer_cost(db_with_dims)
         df = db_with_dims.fetch_df("SELECT * FROM fact_customer_cost LIMIT 1")
         assert "customer_key" in df.columns
-        assert "customer_id" not in df.columns, (
-            "customer_id (natural key) should not be in fact table"
-        )
+        assert "customer_id" not in df.columns, "customer_id (natural key) should not be in fact table"
 
 
 # ---------------------------------------------------------------------------
@@ -513,14 +479,10 @@ class TestFactCustomerCostIdempotency:
     def test_double_load_no_duplicates(self, db_with_dims) -> None:
         """AC-4: Re-run does not duplicate records."""
         load_fact_customer_cost(db_with_dims)
-        count_first = db_with_dims.fetch_all(
-            "SELECT COUNT(*) as cnt FROM fact_customer_cost"
-        )[0]["cnt"]
+        count_first = db_with_dims.fetch_all("SELECT COUNT(*) as cnt FROM fact_customer_cost")[0]["cnt"]
 
         load_fact_customer_cost(db_with_dims)
-        count_second = db_with_dims.fetch_all(
-            "SELECT COUNT(*) as cnt FROM fact_customer_cost"
-        )[0]["cnt"]
+        count_second = db_with_dims.fetch_all("SELECT COUNT(*) as cnt FROM fact_customer_cost")[0]["cnt"]
 
         assert count_first == count_second
 
@@ -561,10 +523,7 @@ class TestFactCustomerCostIntegration:
         # Dimensions
         dim_svc_count = load_dim_service(db)
         assert dim_svc_count > 0
-        dim_cust_count = load_dim_customer(
-            db, FIXTURES_DIR / "sample_customers_v1.parquet",
-            snapshot_date="2025-01-01"
-        )
+        dim_cust_count = load_dim_customer(db, FIXTURES_DIR / "sample_customers_v1.parquet", snapshot_date="2025-01-01")
         assert dim_cust_count > 0
         # Fact
         fact_count = load_fact_customer_cost(db)
@@ -599,10 +558,8 @@ class TestFactCustomerCostIntegration:
         db = DuckDBConnector(database=":memory:")
         load_cur_parquet(db, FIXTURES_DIR / "sample_cur.parquet")
         load_dim_service(db)
-        load_dim_customer(db, FIXTURES_DIR / "sample_customers_v1.parquet",
-                          snapshot_date="2025-01-01")
-        load_dim_customer(db, FIXTURES_DIR / "sample_customers_v2.parquet",
-                          snapshot_date="2025-01-15")
+        load_dim_customer(db, FIXTURES_DIR / "sample_customers_v1.parquet", snapshot_date="2025-01-01")
+        load_dim_customer(db, FIXTURES_DIR / "sample_customers_v2.parquet", snapshot_date="2025-01-15")
 
         count = load_fact_customer_cost(db)
         assert count > 0
@@ -624,8 +581,6 @@ class TestFactCustomerCostIntegration:
             FROM raw_cur
         """)[0]["total"]
         # Allow small rounding tolerance (30 customers × 30 days × 12 services)
-        assert abs(total_allocated - raw_total) < 1.0, (
-            f"Total allocated {total_allocated} != raw total {raw_total}"
-        )
+        assert abs(total_allocated - raw_total) < 1.0, f"Total allocated {total_allocated} != raw total {raw_total}"
 
         db.close()

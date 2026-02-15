@@ -174,6 +174,54 @@ SELECT SUM(record_count) as fact_total FROM fact_daily_cost;
 SELECT COUNT(*) as raw_total FROM raw_cur;
 ```
 
+### fact_customer_cost
+
+| Attribute | Value |
+|-----------|-------|
+| Trigger | After dim_service and dim_customer loads complete |
+| Runtime | < 1 minute |
+| Idempotent | Yes — INSERT ON CONFLICT UPDATE |
+| Grain | (usage_date, customer_key, service_key) |
+| PII | None — surrogate key references only (C-04) |
+
+**Normal operation:**
+1. Runs after both `dim_service` and `dim_customer` are loaded (requires FK targets)
+2. Aggregates raw_cur by (date, service), joins to dim_service for service_key
+3. SCD2 temporal join to dim_customer: effective_from <= usage_date < COALESCE(effective_to, '9999-12-31')
+4. Allocates each service's daily cost equally across all active customers on that date
+5. COALESCE NULL costs to 0.00, ROUND to 2 decimal places
+6. Inserts new grain rows; updates existing on re-run
+
+**Failure scenarios:**
+
+| Symptom | Cause | Action | Severity |
+|---------|-------|--------|----------|
+| DDL file not found | sql/ddl/fact_customer_cost.sql missing | Check file exists in deployment | Medium |
+| DML file not found | sql/dml/load_fact_customer_cost.sql missing | Check file exists in deployment | Medium |
+| 0 rows inserted | raw_cur, dim_service, or dim_customer empty | Verify upstream loads ran first | Medium |
+| FK violation / orphan facts | Dimension missing entries | Re-run dimension loads, then fact load | Medium |
+| Customer count mismatch | SCD2 temporal join issues — expired records not matching | Check dim_customer effective_from/effective_to dates | High |
+| Cost total mismatch | Rounding from equal allocation across many customers | Expected: ≤ N×0.005 per service-date (N = active customers). Check with tolerance. | Low |
+
+**Re-run:** Safe. Re-running updates allocated_cost, record_count, null_cost_count, and _loaded_at but does not duplicate rows.
+
+**Reconciliation checks:**
+```sql
+-- Total allocated cost should approximate raw_cur total (rounding tolerance applies)
+SELECT ROUND(SUM(allocated_cost), 2) as fact_total FROM fact_customer_cost;
+SELECT ROUND(SUM(COALESCE(CAST(line_item_unblended_cost AS DOUBLE), 0.0)), 2) as raw_total FROM raw_cur;
+
+-- No orphan customer FKs
+SELECT COUNT(*) FROM fact_customer_cost f
+LEFT JOIN dim_customer c ON f.customer_key = c.customer_key
+WHERE c.customer_key IS NULL;
+
+-- No orphan service FKs
+SELECT COUNT(*) FROM fact_customer_cost f
+LEFT JOIN dim_service d ON f.service_key = d.service_key
+WHERE d.service_key IS NULL;
+```
+
 ## Rollback
 
 The pipeline is append-only and idempotent. There is no destructive state change.
@@ -182,6 +230,7 @@ The pipeline is append-only and idempotent. There is no destructive state change
 - **To re-process dim_service**: DROP and re-create table (DDL), then re-run loader. All state derived from raw_cur.
 - **To re-process dim_customer**: DROP and re-create table (DDL), then re-load all snapshots in chronological order. History chain rebuilds from scratch.
 - **To re-process fact_daily_cost**: DROP and re-create table (DDL), then re-run loader. All state derived from raw_cur + dim_service.
+- **To re-process fact_customer_cost**: DROP and re-create table (DDL), then re-run loader. All state derived from raw_cur + dim_service + dim_customer.
 - **To rollback code**: Revert git commit, re-deploy previous version
 - **Data is never modified in place**: raw layer is insert-only, dimensions are versioned (SCD2) or idempotent (SCD1), facts are idempotent (INSERT ON CONFLICT)
 
