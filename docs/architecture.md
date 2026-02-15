@@ -222,13 +222,61 @@ raw_cur (DuckDB / Snowflake)
 - **Idempotency**: INSERT ON CONFLICT UPDATE ensures re-run safety
 - **NULL handling**: COALESCE(cost, 0.0) with null_cost_count tracking
 
+### fact_customer_cost — Data Flow
+
+```
+raw_cur (DuckDB / Snowflake)
+        |
+        + dim_service (FK: service_key)
+        + dim_customer (FK: customer_key, SCD2 temporal join)
+        |
+        v
+  [fact_customer_cost Loader]
+  fact_customer_cost_loader.py
+  - Reads DDL from sql/ddl/fact_customer_cost.sql
+  - Executes DML from sql/dml/load_fact_customer_cost.sql
+  - SCD2 temporal join: effective_from <= date < effective_to
+  - Equal cost allocation across active customers per date
+  - INSERT ON CONFLICT UPDATE (idempotent)
+  - NULL costs coalesced to 0.00 with audit trail
+  - Monetary precision: 2 decimal places
+        |
+        v
+  fact_customer_cost (DuckDB / Snowflake)
+  - Grain: (usage_date, customer_key, service_key)
+  - Measures: allocated_cost, record_count, null_cost_count
+  - Audit: _loaded_at
+```
+
+### fact_customer_cost Schema
+
+| Column | Type | Description |
+|--------|------|-------------|
+| usage_date | TEXT | Date (YYYY-MM-DD) — part of composite key |
+| customer_key | INTEGER | FK to dim_customer — part of composite key |
+| service_key | INTEGER | FK to dim_service — part of composite key |
+| allocated_cost | DOUBLE | Equal share of daily service cost, rounded to 2 decimals |
+| record_count | INTEGER | Number of source CUR rows in this service-date grain |
+| null_cost_count | INTEGER | Source rows where cost was NULL (audit trail) |
+| _loaded_at | TEXT | Load timestamp |
+
+- **Unique constraint**: (usage_date, customer_key, service_key)
+- **FK relationships**: customer_key → dim_customer, service_key → dim_service
+- **SCD2 temporal join**: Costs attributed to whichever customer version was active on usage_date (effective_from <= date < COALESCE(effective_to, '9999-12-31'))
+- **Cost allocation**: Daily service cost / count of active customers on that date
+- **PII control**: Surrogate key references only — no raw PII (C-04)
+- **Idempotency**: INSERT ON CONFLICT UPDATE ensures re-run safety (C-08)
+- **NULL handling**: COALESCE(cost, 0.0) with null_cost_count tracking (C-06)
+
 ### Key Design Decisions (Sprint 3)
 
-1. **SQL-first for fact table**: Same pattern as dim_service — DDL and DML in SQL files, Python orchestrates. Portable to Snowflake.
-2. **Composite natural key**: (usage_date, service_key) ensures one row per day per service. No surrogate key needed — grain is the key.
+1. **SQL-first for fact tables**: Same pattern as dim_service — DDL and DML in SQL files, Python orchestrates. Portable to Snowflake.
+2. **Composite natural key**: Grain columns form the unique key. No surrogate key needed.
 3. **NULL cost audit trail**: null_cost_count column tracks how many source rows had NULL cost, enabling data quality monitoring without losing the aggregated value.
 4. **2-decimal monetary precision**: ROUND(SUM(...), 2) applied in SQL for consistent precision across backends.
 5. **Record count reconciliation**: record_count preserves source row counts, enabling SUM(record_count) == COUNT(*) FROM raw_cur validation.
+6. **SCD2 temporal join for customer attribution**: CUR data lacks direct customer mapping, so costs are allocated equally to all active customers. The temporal join ensures the correct customer version (by segment) is used on each date. This supports finance reporting by customer segment (AC-6).
+7. **Rounding tolerance**: Equal allocation (divide by N, round to 2dp per customer) introduces ≤ N×0.005 rounding error per service-date. Acceptable for cost attribution; exact reconciliation uses SUM across customers.
 
 ## Data Classification
 
