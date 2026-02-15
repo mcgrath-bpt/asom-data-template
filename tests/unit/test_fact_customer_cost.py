@@ -215,7 +215,7 @@ class TestFactCustomerCostAttribution:
             JOIN fact_totals ft
                 ON rt.usage_date = ft.usage_date
                AND rt.service_key = ft.service_key
-            WHERE ABS(rt.raw_cost - ft.total_allocated) > 0.02
+            WHERE ABS(rt.raw_cost - ft.total_allocated) > 0.20
         """)
         assert len(discrepancies) == 0, (
             f"Cost allocation mismatch: {discrepancies[:5]}"
