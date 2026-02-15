@@ -137,6 +137,43 @@ Until automated monitoring is in place:
 3. Re-run dimension load with masking confirmed
 4. Report incident per data classification policy
 
+## Fact Loads (Sprint 3)
+
+### fact_daily_cost
+
+| Attribute | Value |
+|-----------|-------|
+| Trigger | After dim_service load completes |
+| Runtime | < 1 minute |
+| Idempotent | Yes — INSERT ON CONFLICT UPDATE |
+| Grain | (usage_date, service_key) |
+
+**Normal operation:**
+1. Runs after `dim_service` is loaded (requires FK target)
+2. Aggregates raw_cur by (date, product_code, usage_type), joins to dim_service for service_key
+3. COALESCE NULL costs to 0.00, ROUND to 2 decimal places
+4. Inserts new grain rows; updates existing on re-run
+5. Tracks null_cost_count and record_count for reconciliation
+
+**Failure scenarios:**
+
+| Symptom | Cause | Action | Severity |
+|---------|-------|--------|----------|
+| DDL file not found | sql/ddl/fact_daily_cost.sql missing | Check file exists in deployment | Medium |
+| DML file not found | sql/dml/load_fact_daily_cost.sql missing | Check file exists in deployment | Medium |
+| 0 rows inserted | raw_cur or dim_service empty | Verify upstream loads ran first | Medium |
+| FK violation / orphan facts | dim_service missing service combos | Re-run dim_service load, then fact load | Medium |
+| SUM(record_count) != COUNT(*) FROM raw_cur | Unmatched CUR rows (no dim_service entry) | Check for new product_code/usage_type combos not in dim_service | Low |
+
+**Re-run:** Safe. Re-running updates daily_cost, record_count, null_cost_count, and _loaded_at but does not duplicate rows.
+
+**Reconciliation check:**
+```sql
+-- Total fact record_count should equal raw_cur row count
+SELECT SUM(record_count) as fact_total FROM fact_daily_cost;
+SELECT COUNT(*) as raw_total FROM raw_cur;
+```
+
 ## Rollback
 
 The pipeline is append-only and idempotent. There is no destructive state change.
@@ -144,8 +181,9 @@ The pipeline is append-only and idempotent. There is no destructive state change
 - **To re-process CUR**: Delete rows from `raw_cur` for the affected date range, then re-run
 - **To re-process dim_service**: DROP and re-create table (DDL), then re-run loader. All state derived from raw_cur.
 - **To re-process dim_customer**: DROP and re-create table (DDL), then re-load all snapshots in chronological order. History chain rebuilds from scratch.
+- **To re-process fact_daily_cost**: DROP and re-create table (DDL), then re-run loader. All state derived from raw_cur + dim_service.
 - **To rollback code**: Revert git commit, re-deploy previous version
-- **Data is never modified in place**: raw layer is insert-only, dimensions are versioned (SCD2) or idempotent (SCD1)
+- **Data is never modified in place**: raw layer is insert-only, dimensions are versioned (SCD2) or idempotent (SCD1), facts are idempotent (INSERT ON CONFLICT)
 
 ## Contacts
 
